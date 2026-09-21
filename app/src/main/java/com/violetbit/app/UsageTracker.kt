@@ -4,6 +4,7 @@ import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import java.util.Calendar
 
@@ -31,19 +32,15 @@ object UsageTracker {
     fun getTodayUsage(context: Context): List<AppUsage> {
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val pm = context.packageManager
-
         val start = startOfDay()
         val now = System.currentTimeMillis()
-
         val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, now) ?: return emptyList()
-
         val agg = mutableMapOf<String, Long>()
         for (s in stats) {
             if (s.totalTimeInForeground > 0) {
                 agg[s.packageName] = (agg[s.packageName] ?: 0L) + s.totalTimeInForeground
             }
         }
-
         val result = mutableListOf<AppUsage>()
         for ((pkg, time) in agg) {
             if (time < 60_000) continue
@@ -55,35 +52,35 @@ object UsageTracker {
                 val label = pm.getApplicationLabel(appInfo).toString()
                 result.add(AppUsage(pkg, label, time))
             } catch (e: PackageManager.NameNotFoundException) {
-                // skip
             }
         }
-
         return result.sortedByDescending { it.usageMillis }
     }
 
-    /**
-     * Почасовая статистика использования приложения (24 значения — минуты в каждом часе).
-     */
+    fun getInstalledApps(context: Context): List<Pair<String, String>> {
+        val pm = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+        val list = pm.queryIntentActivities(intent, 0).map {
+            it.activityInfo.packageName to it.loadLabel(pm).toString()
+        }.distinctBy { it.first }
+         .filterNot { it.first == context.packageName }
+         .sortedBy { it.second.lowercase() }
+        return list
+    }
+
     fun getHourlyUsage(context: Context, packageName: String): LongArray {
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val start = startOfDay()
         val now = System.currentTimeMillis()
-
         val hourly = LongArray(24)
         val events = usm.queryEvents(start, now) ?: return hourly
         val event = UsageEvents.Event()
-
         var lastResume = 0L
-
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
             if (event.packageName != packageName) continue
-
             when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    lastResume = event.timeStamp
-                }
+                UsageEvents.Event.ACTIVITY_RESUMED -> lastResume = event.timeStamp
                 UsageEvents.Event.ACTIVITY_PAUSED -> {
                     if (lastResume > 0 && event.timeStamp > lastResume) {
                         var remaining = event.timeStamp - lastResume
@@ -107,7 +104,6 @@ object UsageTracker {
                 }
             }
         }
-
         return hourly
     }
 
