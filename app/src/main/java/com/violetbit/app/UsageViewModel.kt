@@ -23,6 +23,9 @@ class UsageViewModel(app: Application) : AndroidViewModel(app) {
     private val _settings = MutableStateFlow(storage.load())
     val settings: StateFlow<AppSettings> = _settings
 
+    private val _history = MutableStateFlow<List<Pair<String, Long>>>(emptyList())
+    val history: StateFlow<List<Pair<String, Long>>> = _history
+
     init {
         viewModelScope.launch {
             while (true) { refresh(); delay(30_000) }
@@ -33,12 +36,26 @@ class UsageViewModel(app: Application) : AndroidViewModel(app) {
         withContext(Dispatchers.IO) {
             val ctx = getApplication<Application>()
             _hasPerm.value = UsageTracker.hasPermission(ctx)
-            if (_hasPerm.value) _apps.value = UsageTracker.getTodayUsage(ctx)
+            if (_hasPerm.value) {
+                val list = UsageTracker.getTodayUsage(ctx)
+                _apps.value = list
+                // Сохраняем дневную статистику
+                if (list.isNotEmpty()) {
+                    DailyStats.saveToday(ctx, list.sumOf { it.usageMillis }, list)
+                }
+                _history.value = DailyStats.getLastDays(ctx, 30)
+            }
         }
     }
 
     suspend fun getHourly(pkg: String): LongArray = withContext(Dispatchers.IO) {
         UsageTracker.getHourlyUsage(getApplication(), pkg)
+    }
+
+    suspend fun refreshHistory() {
+        withContext(Dispatchers.IO) {
+            _history.value = DailyStats.getLastDays(getApplication(), 30)
+        }
     }
 
     fun setThreshold(hours: Int) {

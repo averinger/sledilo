@@ -114,6 +114,7 @@ fun UsageScreen(vm: UsageViewModel = viewModel()) {
 
     var showInfo by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
     var selectedApp by remember { mutableStateOf<AppUsage?>(null) }
     var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     var updateChecked by remember { mutableStateOf(false) }
@@ -145,6 +146,14 @@ fun UsageScreen(vm: UsageViewModel = viewModel()) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Spacer(Modifier.height(30.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(44.dp).clip(CircleShape)
+                        .background(Color(0xFF2A004D)).clickable { showHistory = true },
+                    contentAlignment = Alignment.Center
+                ) { Text("📊", color = Color(0xFFE0B0FF), fontSize = 18.sp) }
+
+                Spacer(Modifier.width(6.dp))
+
                 Box(
                     modifier = Modifier.size(44.dp).clip(CircleShape)
                         .background(Color(0xFF2A004D)).clickable { showSettings = true },
@@ -192,6 +201,7 @@ fun UsageScreen(vm: UsageViewModel = viewModel()) {
 
     if (showInfo) InfoDialog(onClose = { showInfo = false })
     if (showSettings) SettingsDialog(vm, onClose = { showSettings = false })
+    if (showHistory) HistoryDialog(vm, onClose = { showHistory = false })
     selectedApp?.let { app -> DetailDialog(app, vm) { selectedApp = null } }
 
     updateInfo?.let { info ->
@@ -613,4 +623,110 @@ fun InfoBlock(title: String, body: String) {
         Spacer(Modifier.height(4.dp))
         Text(body, color = Color(0xFFE0B0FF), fontSize = 13.sp, lineHeight = 18.sp)
     }
+}
+
+
+@Composable
+fun HistoryDialog(vm: UsageViewModel, onClose: () -> Unit) {
+    val history by vm.history.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        vm.refreshHistory()
+    }
+
+    val maxVal = history.maxOfOrNull { it.second }?.coerceAtLeast(1L) ?: 1L
+    val totalAll = history.sumOf { it.second }
+    val avgMillis = if (history.isNotEmpty()) totalAll / history.size else 0L
+    val activeDays = history.count { it.second > 0 }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = {
+            Text("История за 30 дней", color = Color(0xFFE0B0FF), fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Активных дней", color = Color(0xFF8A2BE2), fontSize = 11.sp)
+                        Text("$activeDays", color = Color(0xFFE0B0FF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Среднее в день", color = Color(0xFF8A2BE2), fontSize = 11.sp)
+                        Text(formatShort(avgMillis), color = Color(0xFFE0B0FF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Divider(color = Color(0xFF2A004D))
+                Spacer(Modifier.height(12.dp))
+
+                if (history.all { it.second == 0L }) {
+                    Text(
+                        "Данных пока нет. Статистика появится, когда начнёшь пользоваться телефоном.",
+                        color = Color(0xFF6A0DAD), fontSize = 13.sp
+                    )
+                } else {
+                    Text("По дням:", color = Color(0xFF8A2BE2), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    history.forEach { (dateStr, millis) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                shortDate(dateStr),
+                                color = Color(0xFF8A2BE2),
+                                fontSize = 11.sp,
+                                modifier = Modifier.width(48.dp)
+                            )
+                            Box(
+                                modifier = Modifier.weight(1f).height(14.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF2A004D))
+                            ) {
+                                val frac = (millis.toFloat() / maxVal.toFloat()).coerceIn(0f, 1f)
+                                if (frac > 0f) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(frac).fillMaxHeight()
+                                            .background(Brush.horizontalGradient(
+                                                listOf(Color(0xFF8A2BE2), Color(0xFFE0B0FF))
+                                            ))
+                                    )
+                                }
+                            }
+                            Text(
+                                formatShort(millis),
+                                color = Color(0xFFE0B0FF),
+                                fontSize = 11.sp,
+                                modifier = Modifier.width(60.dp).padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) {
+                Text("Закрыть", color = Color(0xFFE0B0FF), fontWeight = FontWeight.Bold)
+            }
+        },
+        containerColor = Color(0xFF141414)
+    )
+}
+
+fun formatShort(millis: Long): String {
+    val totalMin = millis / 60_000
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return if (h > 0) "${h}ч ${m}м" else "${m}м"
+}
+
+fun shortDate(dateStr: String): String {
+    return try {
+        val parts = dateStr.split("-")
+        "${parts[2]}.${parts[1]}"
+    } catch (e: Exception) { dateStr }
 }
