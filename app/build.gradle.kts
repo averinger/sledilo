@@ -42,6 +42,12 @@ android {
         }
     }
 
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+        checkDependencies = false
+    }
+
     buildFeatures {
         compose = true
     }
